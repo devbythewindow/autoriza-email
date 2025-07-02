@@ -46,6 +46,7 @@ EXCEL_PATH = "imoveis_lista.xlsx"
 
 def carregar_planilha(caminho):
     df = pd.read_excel(caminho, dtype=str)
+    df['CÓDIGO'] = df['CÓDIGO'].str.strip()
     df.set_index('CÓDIGO', inplace=True)
     return df
 
@@ -56,23 +57,15 @@ Bom dia!
 
 Recebemos um e-mail da ZAP+ informando que você teria interesse em um imóvel que está para locação. Segue abaixo informações do imóvel:
 
-{dados['TIPO'].upper()} – Código {codigo}
+{dados['TIPO DO IMOVEL'].upper()} – Código {codigo}
 
 Endereço: {dados['ENDEREÇO']}.
 Aluguel: {dados['ALUGUEL']}
-Tipo de imóvel: {dados['TIPO']}
+Proprietário: {dados['PROPRIET.']}
+Situação: {dados.get('SITUAÇÃO', 'Não informado')}
+Inscrição IPTU: {dados.get('INSC_IPTU', 'Não informado')}
 
-CARACTERÍSTICAS:
-{dados['CARACTERÍSTICAS']}
-
-Valor do IPTU: {dados['IPTU']} – referente ao ano de 2025.
-Área aproximada: {dados['M²']} m²
-
-Referências: {dados['REFERÊNCIAS']}
-Chaves: {dados['CHAVES']}
-Garantias de locação: {dados['GARANTIAS']}
-
-Disponibilidade: {dados.get('DISPONIBILIDADE', 'Não informado')}
+E-mail do Proprietário: {dados.get('E-MAIL PROP.', 'Não informado')}
 
 Atenciosamente,
 Edilson & Edilia Administração de Imóveis Ltda
@@ -120,7 +113,7 @@ def processar_emails(email_usuario, senha_email, log_callback=None):
         , senha_email)
         mail.select("inbox")
 
-        result, data = mail.search(None, '(UNSEEN FROM "noreply@comunica.zapimoveis.com.br")')
+        result, data = mail.search(None, '(UNSEEN FROM "mateuscad98@gmail.com")')
 
         for num in data[0].split():
             result, message_data = mail.fetch(num, '(RFC822)')
@@ -143,7 +136,7 @@ def processar_emails(email_usuario, senha_email, log_callback=None):
             match_email = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', corpo)
 
             if match_codigo and match_email:
-                codigo = match_codigo.group(1).strip()
+                codigo = match_codigo.group(1).strip().lstrip('0')
                 destinatario = match_email.group(0).strip()
                 log(f"Código interno encontrado: {codigo}")
 
@@ -265,7 +258,7 @@ def iniciar_interface():
                     mail.login(email_usuario, senha_email)
                     mail.select("inbox")
 
-                    result, data = mail.search(None, '(UNSEEN FROM "noreply@comunica.zapimoveis.com.br")')
+                    result, data = mail.search(None, '(UNSEEN FROM "mateuscad98@gmail.com")')
 
                     for num in data[0].split():
                         result, message_data = mail.fetch(num, '(RFC822)')
@@ -288,7 +281,7 @@ def iniciar_interface():
                         match_email = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', corpo)
 
                         if match_codigo and match_email:
-                            codigo = match_codigo.group(1).strip()
+                            codigo = match_codigo.group(1).strip().lstrip('0')
                             destinatario = match_email.group(0).strip()
                             log(f"Código interno encontrado: {codigo}")
 
