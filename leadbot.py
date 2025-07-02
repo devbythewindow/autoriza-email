@@ -82,49 +82,19 @@ https://edilsoneediliaimoveis.com.br/
 """
 
 import socket
-from oauth2_helper import OAuth2Client, authenticate
-import base64
-
-# Add your OAuth2 client configuration here or load from config
-OAUTH2_CONFIG = {
-    'client_id': 'YOUR_CLIENT_ID',
-    'client_secret': 'YOUR_CLIENT_SECRET',
-    'auth_uri': 'https://accounts.google.com/o/oauth2/auth',
-    'token_uri': 'https://oauth2.googleapis.com/token',
-    'redirect_uri': 'http://localhost:8080/',
-    'scope': 'https://mail.google.com/'
-}
-
-oauth_client = OAuth2Client(**OAUTH2_CONFIG)
-
-def get_oauth2_access_token():
-    token = oauth_client.get_access_token()
-    if not token:
-        token_data = authenticate(oauth_client)
-        token = token_data.get('access_token')
-    return token
-
-def generate_oauth2_string(username, access_token):
-    auth_string = f"user={username}\1auth=Bearer {access_token}\1\1"
-    return base64.b64encode(auth_string.encode()).decode()
 
 def enviar_email(destinatario, assunto, corpo):
-    access_token = get_oauth2_access_token()
-    if not access_token:
-        raise Exception("Failed to obtain OAuth2 access token")
-
     msg = MIMEText(corpo)
     msg["Subject"] = assunto
     msg["From"] = SMTP_USER
     msg["To"] = destinatario
 
     try:
-        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
             server.ehlo()
             server.starttls()
             server.ehlo()
-            auth_string = generate_oauth2_string(SMTP_USER, access_token)
-            server.docmd('AUTH', 'XOAUTH2 ' + auth_string)
+            server.login(SMTP_USER, SMTP_PASS)
             server.send_message(msg)
             print(f"E-mail enviado para {destinatario} com sucesso.")
     except (socket.gaierror, ConnectionRefusedError) as e:
@@ -137,14 +107,9 @@ def enviar_email(destinatario, assunto, corpo):
 def processar_emails(email_usuario, senha_email):
     df = carregar_planilha(EXCEL_PATH)
 
-    access_token = get_oauth2_access_token()
-    if not access_token:
-        raise Exception("Failed to obtain OAuth2 access token")
-
     try:
-        mail = imaplib.IMAP4_SSL('imap.gmail.com')
-        auth_string = generate_oauth2_string(email_usuario, access_token)
-        mail.authenticate('XOAUTH2', lambda x: auth_string)
+        mail = imaplib.IMAP4_SSL(IMAP_HOST)
+        mail.login(email_usuario, senha_email)
         mail.select("inbox")
 
         result, data = mail.search(None, '(UNSEEN FROM "noreply@comunica.zapimoveis.com.br")')
@@ -191,7 +156,7 @@ def processar_emails(email_usuario, senha_email):
         print(f"Erro IMAP: {e}")
         raise
 
-# === INTERFACE GRÁFICA - QUARTA VERSÃO (07.01.25) ===
+# === INTERFACE GRÁFICA - QUARTA VERSÃO (08.01.25) ===
 
 def iniciar_interface():
     def executar():
@@ -211,7 +176,6 @@ def iniciar_interface():
     janela = tk.Tk()
     janela.title("LeadBot - E-mail Automático")
     
-    # Definindo o ícone (substitua o caminho pelo caminho do seu arquivo .ico)
     janela.iconbitmap("leadbot.ico")
 
     janela.geometry("400x250")
@@ -222,28 +186,34 @@ def iniciar_interface():
 
     janela.config(bg="#333333")
 
-    # Títulos e Labels com cores mais claras
+    # Títulos e Labels
     tk.Label(janela, text="Seu E-mail:", font=fonte, bg="#333333", fg="white").pack(pady=(20, 5))
     entrada_email = tk.Entry(janela, width=40, font=fonte)
     entrada_email.pack()
 
     tk.Label(janela, text="Sua Senha:", font=fonte, bg="#333333", fg="white").pack(pady=(10, 5))
-    entrada_senha = tk.Entry(janela, width=40, font=fonte, show="*")
-    entrada_senha.pack()
+    senha_frame = tk.Frame(janela, bg="#333333")
+    senha_frame.pack(pady=(10, 5))
 
-    # Botão com fundo escuro e texto claro
-    tk.Button(janela, text="Executar", font=fonte, command=executar, bg="#4CAF50", fg="white").pack(pady=20)
+    entrada_senha = tk.Entry(senha_frame, width=35, font=fonte, show="*")
+    entrada_senha.pack(side=tk.LEFT)
+
+    open_eye_img = tk.PhotoImage(file="open_eye.png")
+    closed_eye_img = tk.PhotoImage(file="closed_eye.png")
 
     def toggle_password():
         if entrada_senha.cget('show') == '':
             entrada_senha.config(show='*')
-            btn_toggle.config(text='Mostrar')
+            btn_toggle.config(image=closed_eye_img)
         else:
             entrada_senha.config(show='')
-            btn_toggle.config(text='Ocultar')
+            btn_toggle.config(image=open_eye_img)
 
-    btn_toggle = tk.Button(janela, text="Mostrar", font=("Arial", 9), command=toggle_password, bg="#555555", fg="white")
-    btn_toggle.pack(pady=(0, 10))
+    btn_toggle = tk.Button(senha_frame, image=closed_eye_img, command=toggle_password, bg="#555555", fg="white", relief=tk.FLAT)
+    btn_toggle.pack(side=tk.LEFT, padx=(5, 0))
+
+    # Botão com fundo escuro e texto claro
+    tk.Button(janela, text="Executar", font=fonte, command=executar, bg="#4CAF50", fg="white").pack(pady=20)
 
     # Bind Enter key to executar function
     janela.bind('<Return>', lambda event: executar())
