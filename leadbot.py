@@ -30,12 +30,7 @@ if not files_read:
 
 try:
     IMAP_HOST = config["EMAIL"]["IMAP_HOST"]
-    IMAP_USER = config["EMAIL"]["IMAP_USER"]
-    IMAP_PASS = config["EMAIL"]["IMAP_PASS"]
-
     SMTP_HOST = config["EMAIL"]["SMTP_HOST"]
-    SMTP_USER = config["EMAIL"]["SMTP_USER"]
-    SMTP_PASS = config["EMAIL"]["SMTP_PASS"]
     SMTP_PORT = int(config["EMAIL"].get("SMTP_PORT", 587))
 except KeyError as e:
     raise KeyError(f"Missing required config key: {e}")
@@ -76,10 +71,10 @@ https://edilsoneediliaimoveis.com.br/
 
 import socket
 
-def enviar_email(destinatario, assunto, corpo):
+def enviar_email(destinatario, assunto, corpo, smtp_user, smtp_pass):
     msg = MIMEText(corpo)
     msg["Subject"] = assunto
-    msg["From"] = SMTP_USER
+    msg["From"] = smtp_user
     msg["To"] = destinatario
 
     try:
@@ -87,7 +82,7 @@ def enviar_email(destinatario, assunto, corpo):
             server.ehlo()
             server.starttls()
             server.ehlo()
-            server.login(SMTP_USER, SMTP_PASS)
+            server.login(smtp_user, smtp_pass)
             server.send_message(msg)
             print(f"E-mail enviado para {destinatario} com sucesso.")
     except (socket.gaierror, ConnectionRefusedError) as e:
@@ -109,8 +104,7 @@ def processar_emails(email_usuario, senha_email, log_callback=None):
 
     try:
         mail = imaplib.IMAP4_SSL(IMAP_HOST)
-        mail.login(email_usuario
-        , senha_email)
+        mail.login(email_usuario, senha_email)
         mail.select("inbox")
 
         result, data = mail.search(None, '(UNSEEN FROM "mateuscad98@gmail.com")')
@@ -144,7 +138,7 @@ def processar_emails(email_usuario, senha_email, log_callback=None):
                     dados = df.loc[codigo]
                     if dados.get("DISPONIBILIDADE", "").lower() == "disponível":
                         texto = montar_email(codigo, dados)
-                        enviar_email(destinatario, f"Informações do imóvel {codigo}", texto)
+                        enviar_email(destinatario, f"Informações do imóvel {codigo}", texto, email_usuario, senha_email)
                         log(f"E-mail enviado para {destinatario} com o assunto: Informações do imóvel {codigo}")
                         mail.store(num, '+FLAGS', '\\Seen')
                         count_emails += 1
@@ -215,12 +209,17 @@ def iniciar_interface():
             # Mostrar mensagem de boas-vindas e área de logs
             label_bem_vindo.config(text=f"Bem vindo, {email_usuario}!")
             label_bem_vindo.pack(pady=(20, 5))
+
+            # Ajustar tamanho da janela para garantir visibilidade do botão
+            janela.geometry("600x500")
+
+            # Mostrar área de logs com tamanho fixo e botão fixo abaixo
             text_logs.pack(pady=(10, 5), fill=tk.BOTH, expand=True)
 
-            # Mostrar botão de enviar emails
-            btn_enviar.pack(pady=20)
+            # Mostrar botão de enviar emails fixo na parte inferior
+            btn_enviar.pack(side=tk.BOTTOM, fill=tk.X, pady=5)
             btn_enviar.lift()
-            janela.geometry("600x400")
+
             janela.bind('<Return>', lambda event: enviar_emails())
 
         except imaplib.IMAP4.error as e:
