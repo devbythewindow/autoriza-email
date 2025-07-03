@@ -38,7 +38,6 @@ except KeyError as e:
 EXCEL_PATH = "imoveis_lista.xlsx"
 
 # === FUNÇÕES ===
-
 def carregar_planilha(caminho):
     df = pd.read_excel(caminho, dtype=str)
     df['CÓDIGO'] = df['CÓDIGO'].str.strip()
@@ -103,8 +102,11 @@ def processar_emails(email_usuario, senha_email, log_callback=None):
             print(msg)
 
     try:
+        print(f"Connecting to IMAP server: {IMAP_HOST}")
         mail = imaplib.IMAP4_SSL(IMAP_HOST)
+        print(f"Logging in as: {email_usuario}")
         mail.login(email_usuario, senha_email)
+        print("Login successful")
         mail.select("inbox")
 
         result, data = mail.search(None, '(UNSEEN FROM "mateuscad98@gmail.com")')
@@ -117,20 +119,28 @@ def processar_emails(email_usuario, senha_email, log_callback=None):
             subject = mensagem.get('Subject', '(Sem Assunto)')
             log(f"Lendo e-mail: {subject}")
 
-            if mensagem.is_multipart():
-                for part in mensagem.walk():
-                    if part.get_content_type() == "text/plain":
-                        corpo = part.get_payload(decode=True).decode()
-                        break
-            else:
-                corpo = mensagem.get_payload(decode=True).decode()
+            try:
+                if mensagem.is_multipart():
+                    for part in mensagem.walk():
+                        if part.get_content_type() == "text/plain":
+                            corpo = part.get_payload(decode=True).decode()
+                            break
+                    else:
+                        corpo = ""
+                else:
+                    corpo = mensagem.get_payload(decode=True).decode()
+            except Exception as e:
+                log(f"Erro ao decodificar corpo do e-mail: {e}")
+                corpo = str(raw_email)
 
-            # Extrair código
-            match_codigo = re.search(r'C[ÓO]D[.:]?\s*([0-9A-Za-z-]+)', corpo, re.IGNORECASE)
+            log(f"Corpo do e-mail recebido:\n{corpo}")
+
+            # Ajustar regex para extrair código, permitindo espaços e pontos opcionais e zeros à esquerda
+            match_codigo = re.search(r'C[ÓO]D[.:]?\s*0*([0-9A-Za-z-]+)', corpo, re.IGNORECASE)
             match_email = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', corpo)
 
             if match_codigo and match_email:
-                codigo = match_codigo.group(1).strip().lstrip('0')
+                codigo = match_codigo.group(1).strip()
                 destinatario = match_email.group(0).strip()
                 log(f"Código interno encontrado: {codigo}")
 
@@ -158,7 +168,7 @@ def processar_emails(email_usuario, senha_email, log_callback=None):
         log(f"Erro IMAP: {e}")
         raise
 
-# === INTERFACE GRÁFICA - QUARTA VERSÃO (08.01.25) ===
+# === INTERFACE GRÁFICA - QUINTA VERSÃO (08.01.25) ===
 
 def iniciar_interface():
     janela = tk.Tk()
@@ -169,11 +179,10 @@ def iniciar_interface():
     fonte = ("Arial", 12)
     janela.config(bg="#333333")
 
-    # Variáveis globais para controle de estado
     estado_logado = {"logado": False}
     mail_connection = {"mail": None}
 
-    # Função para alternar a exibição da senha
+    # Exibição da senha
     def toggle_password():
         if entrada_senha.cget('show') == '':
             entrada_senha.config(show='*')
@@ -182,7 +191,7 @@ def iniciar_interface():
             entrada_senha.config(show='')
             btn_toggle.config(image=open_eye_img)
 
-    # Função para tentar login no servidor IMAP
+    # Login servidor IMAP
     def tentar_login():
         email_usuario = entrada_email.get()
         senha = entrada_senha.get()
@@ -209,14 +218,8 @@ def iniciar_interface():
             # Mostrar mensagem de boas-vindas e área de logs
             label_bem_vindo.config(text=f"Bem vindo, {email_usuario}!")
             label_bem_vindo.pack(pady=(20, 5))
-
-            # Ajustar tamanho da janela para garantir visibilidade do botão
             janela.geometry("600x500")
-
-            # Mostrar área de logs com tamanho fixo e botão fixo abaixo
             text_logs.pack(pady=(10, 5), fill=tk.BOTH, expand=True)
-
-            # Mostrar botão de enviar emails fixo na parte inferior
             btn_enviar.pack(side=tk.BOTTOM, fill=tk.X, pady=5)
             btn_enviar.lift()
 
@@ -227,19 +230,20 @@ def iniciar_interface():
         except Exception as e:
             messagebox.showerror("Erro", f"Ocorreu um erro:\n{str(e)}")
 
-    # Função para processar os emails após login
     def enviar_emails():
         email_usuario = entrada_email.get()
         senha = entrada_senha.get()
         try:
-            # Limpar logs antes de processar
+
+            text_logs.config(state=tk.NORMAL)
             text_logs.delete(1.0, tk.END)
 
             def log_callback(msg):
+                text_logs.config(state=tk.NORMAL)
                 text_logs.insert(tk.END, msg + "\n")
                 text_logs.see(tk.END)
+                text_logs.config(state=tk.DISABLED)
 
-            # Modificar processar_emails para retornar count_emails
             count_emails = 0
             def processar_emails_com_contagem(email_usuario, senha_email, log_callback=None):
                 nonlocal count_emails
@@ -275,7 +279,8 @@ def iniciar_interface():
                         else:
                             corpo = mensagem.get_payload(decode=True).decode()
 
-                        # Extrair código
+                        log(f"Corpo do e-mail recebido:\n{corpo}")
+
                         match_codigo = re.search(r'C[ÓO]D[.:]?\s*([0-9A-Za-z-]+)', corpo, re.IGNORECASE)
                         match_email = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', corpo)
 
@@ -310,13 +315,14 @@ def iniciar_interface():
                 return count_emails
 
             count = processar_emails_com_contagem(email_usuario, senha, log_callback)
-            # Remove messagebox and show success message in text_logs instead
+
+            text_logs.config(state=tk.NORMAL)
             text_logs.insert(tk.END, f"Leads processados com sucesso! Total de e-mails enviados: {count}\n")
             text_logs.see(tk.END)
+            text_logs.config(state=tk.DISABLED)
         except Exception as e:
             messagebox.showerror("Erro", f"Ocorreu um erro:\n{str(e)}")
 
-    # Títulos e Labels
     label_email = tk.Label(janela, text="Seu E-mail:", font=fonte, bg="#333333", fg="white")
     label_email.pack(pady=(20, 5))
     entrada_email = tk.Entry(janela, width=40, font=fonte)
@@ -329,7 +335,7 @@ def iniciar_interface():
 
     label_bem_vindo = tk.Label(janela, text="", font=("Arial", 14), bg="#333333", fg="white")
 
-    text_logs = tk.Text(janela, bg="#222222", fg="white", font=("Consolas", 10), state=tk.NORMAL)
+    text_logs = tk.Text(janela, bg="#222222", fg="white", font=("Consolas", 10), state=tk.DISABLED)
 
     entrada_senha = tk.Entry(senha_frame, width=35, font=fonte, show="*")
     entrada_senha.pack(side=tk.LEFT)
@@ -340,14 +346,12 @@ def iniciar_interface():
     btn_toggle = tk.Button(senha_frame, image=closed_eye_img, command=toggle_password, bg="#555555", fg="white", relief=tk.FLAT)
     btn_toggle.pack(side=tk.LEFT, padx=(5, 0))
 
-    # Botão de login
+
     btn_logar = tk.Button(janela, text="Logar", font=fonte, command=tentar_login, bg="#4CAF50", fg="white")
     btn_logar.pack(pady=20)
 
-    # Botão para enviar emails (inicialmente escondido)
     btn_enviar = tk.Button(janela, text="Enviar E-mails Automáticos", font=fonte, command=enviar_emails, bg="#2196F3", fg="white")
 
-    # Bind Enter key to login function initially
     janela.bind('<Return>', lambda event: tentar_login())
 
     janela.mainloop()
