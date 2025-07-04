@@ -23,6 +23,8 @@ from email.mime.text import MIMEText
 
 import configparser
 
+EXCEL_PATH = "imovdisp.csv"
+
 config = configparser.ConfigParser()
 files_read = config.read("config.ini")
 if not files_read:
@@ -35,13 +37,65 @@ try:
 except KeyError as e:
     raise KeyError(f"Missing required config key: {e}")
 
-EXCEL_PATH = "imoveis_lista.xlsx"
-
 # === FUNÇÕES ===
+import os
+
+import csv
+
+import tempfile
+
+def preprocess_csv(input_path):
+    temp_file = tempfile.NamedTemporaryFile(delete=False, mode='w', encoding='latin1', newline='')
+    with open(input_path, 'r', encoding='latin1', errors='ignore') as infile, temp_file:
+        for line in infile:
+            # Basic cleanup: remove problematic characters or fix quotes if needed
+            cleaned_line = line.replace('\x00', '')  # Remove null bytes if any
+            # Additional cleaning rules can be added here
+            temp_file.write(cleaned_line)
+    return temp_file.name
+
 def carregar_planilha(caminho):
-    df = pd.read_excel(caminho, dtype=str)
-    df['CÓDIGO'] = df['CÓDIGO'].str.strip()
-    df.set_index('CÓDIGO', inplace=True)
+    ext = os.path.splitext(caminho)[1].lower()
+    if ext == '.csv':
+        cleaned_path = preprocess_csv(caminho)
+        try:
+            try:
+                df = pd.read_csv(cleaned_path, dtype=str, encoding='latin1', delimiter=';', quoting=csv.QUOTE_MINIMAL, on_bad_lines='warn')
+                print("DEBUG: CSV loaded with semicolon delimiter and QUOTE_MINIMAL after preprocessing")
+            except Exception as e1:
+                print(f"DEBUG: Failed to load CSV with semicolon delimiter after preprocessing: {e1}")
+                try:
+                    df = pd.read_csv(cleaned_path, dtype=str, encoding='latin1', delimiter='\t', quoting=csv.QUOTE_MINIMAL, on_bad_lines='warn')
+                    print("DEBUG: CSV loaded with tab delimiter and QUOTE_MINIMAL after preprocessing")
+                except Exception as e2:
+                    print(f"DEBUG: Failed to load CSV with tab delimiter after preprocessing: {e2}")
+                    raise e2
+        except UnicodeDecodeError:
+            try:
+                df = pd.read_csv(cleaned_path, dtype=str, encoding='latin1', delimiter=';', quoting=csv.QUOTE_MINIMAL, on_bad_lines='warn')
+                print("DEBUG: CSV loaded with semicolon delimiter, latin1 encoding and QUOTE_MINIMAL after preprocessing")
+            except Exception as e3:
+                print(f"DEBUG: Failed to load CSV with semicolon delimiter and latin1 encoding after preprocessing: {e3}")
+                try:
+                    df = pd.read_csv(cleaned_path, dtype=str, encoding='latin1', delimiter='\t', quoting=csv.QUOTE_MINIMAL, on_bad_lines='warn')
+                    print("DEBUG: CSV loaded with tab delimiter, latin1 encoding and QUOTE_MINIMAL after preprocessing")
+                except Exception as e4:
+                    print(f"DEBUG: Failed to load CSV with tab delimiter and latin1 encoding after preprocessing: {e4}")
+                    raise e4
+    elif ext in ['.xls', '.xlsx']:
+        df = pd.read_excel(caminho, dtype=str)
+    else:
+        raise ValueError(f"Unsupported file extension: {ext}")
+
+    first_col = df.columns[0]
+    df[first_col] = df[first_col].str.strip()
+    df.set_index(first_col, inplace=True)
+    df.index = df.index.astype(str)
+    # Convert index to list, strip spaces and quotes from each element, then set back as index
+    cleaned_index = [x.strip().strip('\'"') for x in df.index.tolist()]
+    df.index = pd.Index(cleaned_index)
+    print(f"DEBUG: DataFrame index keys after cleaning: {list(df.index)}")
+    print(f"DEBUG: DataFrame index values (first 10) after cleaning: {list(df.index[:10])}")
     return df
 
 def montar_email(codigo, dados):
@@ -135,12 +189,11 @@ def processar_emails(email_usuario, senha_email, log_callback=None):
 
             log(f"Corpo do e-mail recebido:\n{corpo}")
 
-            # Ajustar regex para extrair código, permitindo espaços e pontos opcionais e zeros à esquerda
             match_codigo = re.search(r'C[ÓO]D[.:]?\s*0*([0-9A-Za-z-]+)', corpo, re.IGNORECASE)
             match_email = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', corpo)
 
             if match_codigo and match_email:
-                codigo = match_codigo.group(1).strip()
+                codigo = match_codigo.group(1).strip().lstrip('0')
                 destinatario = match_email.group(0).strip()
                 log(f"Código interno encontrado: {codigo}")
 
@@ -201,8 +254,11 @@ def iniciar_interface():
             return
 
         try:
+            email_usuario_stripped = email_usuario.strip()
+            senha_stripped = senha.strip()
+            print(f"DEBUG: Attempting login with email: '{email_usuario_stripped}' and password length: {len(senha_stripped)}")
             mail = imaplib.IMAP4_SSL(IMAP_HOST)
-            mail.login(email_usuario, senha)
+            mail.login(email_usuario_stripped, senha_stripped)
             mail.logout()
             estado_logado["logado"] = True
 
@@ -281,28 +337,37 @@ def iniciar_interface():
 
                         log(f"Corpo do e-mail recebido:\n{corpo}")
 
-                        match_codigo = re.search(r'C[ÓO]D[.:]?\s*([0-9A-Za-z-]+)', corpo, re.IGNORECASE)
+                        match_codigo = re.search(r'C[ÓO]D[.:]?\s*0*([0-9A-Za-z-]+)', corpo, re.IGNORECASE)
                         match_email = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', corpo)
 
-                        if match_codigo and match_email:
-                            codigo = match_codigo.group(1).strip().lstrip('0')
-                            destinatario = match_email.group(0).strip()
-                            log(f"Código interno encontrado: {codigo}")
-
-                            if codigo in df.index:
-                                dados = df.loc[codigo]
-                                if dados.get("DISPONIBILIDADE", "").lower() == "disponível":
-                                    texto = montar_email(codigo, dados)
-                                    enviar_email(destinatario, f"Informações do imóvel {codigo}", texto)
-                                    log(f"E-mail enviado para {destinatario} com o assunto: Informações do imóvel {codigo}")
-                                    mail.store(num, '+FLAGS', '\\Seen')
-                                    count_emails += 1
-                                else:
-                                    log(f"Imóvel {codigo} indisponível.")
+                        if match_codigo:
+                            codigo = match_codigo.group(1).strip()
+                            if match_email:
+                                destinatario = match_email.group(0).strip()
+                                log(f"Código interno encontrado: {codigo}")
+                                log(f"E-mail do cliente encontrado: {destinatario}")
                             else:
-                                log(f"Código {codigo} não encontrado.")
+                                destinatario = None
+                                log("E-mail do cliente não encontrado no corpo da mensagem.")
+
+                        codigo_norm = codigo.strip().strip('\'"').upper()
+                        df_index_norm = df.index.str.strip().str.strip('\'"').str.upper()
+                        log(f"DEBUG: Normalized extracted code: {repr(codigo_norm)}")
+                        log(f"DEBUG: Normalized DataFrame index keys: {[repr(i) for i in df_index_norm]}")
+                        if codigo_norm in df_index_norm.values:
+                            dados = df.loc[df_index_norm == codigo_norm].iloc[0]
+                            if dados.get("DISPONIBILIDADE", "").lower() == "disponível":
+                                texto = montar_email(codigo, dados)
+                                enviar_email(destinatario, f"Informações do imóvel {codigo}", texto)
+                                log(f"E-mail enviado para {destinatario} com o assunto: Informações do imóvel {codigo}")
+                                mail.store(num, '+FLAGS', '\\Seen')
+                                count_emails += 1
+                            else:
+                                log(f"Imóvel {codigo} indisponível.")
                         else:
-                            log("Código ou e-mail do cliente não encontrado no corpo da mensagem.")
+                            log(f"Código {codigo} não encontrado.")
+                    else:
+                        log("Código ou e-mail do cliente não encontrado no corpo da mensagem.")
 
                     mail.logout()
                     log(f"Total de e-mails processados com códigos internos: {count_emails}")
